@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Elite Combat - Reflex Trainer</title>
+    <style>
+        body { margin: 0; background: #000; color: #ff0000; overflow: hidden; font-family: 'Courier New', Courier, monospace; }
+        canvas { display: block; background: #111; cursor: crosshair; }
+        #ui { position: absolute; top: 15px; left: 15px; pointer-events: none; z-index: 5; }
+        .stat-box { background: rgba(0, 0, 0, 0.8); padding: 10px; border: 1px solid #ff0000; margin-bottom: 5px; width: 200px; }
+        #overlay {
+            position: absolute; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.9); display: flex; 
+            flex-direction: column; justify-content: center; 
+            align-items: center; z-index: 100;
+        }
+        #startBtn {
+            padding: 20px 60px; font-size: 30px; background: #ff0000; 
+            color: white; border: none; cursor: pointer; font-weight: bold;
+            box-shadow: 0 0 20px #ff0000;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="overlay">
+        <h1 style="font-size: 60px; margin: 0;">ELITE COMBAT</h1>
+        <p style="color: white;">Beat your high score or get kicked out!</p>
+        <button id="startBtn">START MISSION</button>
+    </div>
+
+    <div id="ui">
+        <div class="stat-box">KILLS: <span id="score">0</span></div>
+        <div class="stat-box">YOUR BEST: <span id="highscore">0</span></div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const scoreEl = document.getElementById("score");
+        const highscoreEl = document.getElementById("highscore");
+        const overlay = document.getElementById("overlay");
+        const startBtn = document.getElementById("startBtn");
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // The exact sound from your video
+        const getOutSound = new Audio('https://www.myinstants.com/media/sounds/get-out.mp3');
+        
+        let score = 0;
+        let gameActive = false;
+        let highscore = parseInt(localStorage.getItem('combatHighScore')) || 0;
+        highscoreEl.innerText = highscore;
+
+        let projectiles = [];
+        let enemies = [];
+
+        class Player {
+            constructor() {
+                this.x = canvas.width / 2;
+                this.y = canvas.height / 2;
+                this.radius = 20;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#0055ff';
+                ctx.fill();
+                ctx.strokeStyle = "white";
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+        }
+
+        const player = new Player();
+
+        function spawnEnemy() {
+            if (!gameActive) return;
+            const radius = Math.random() * 15 + 10;
+            let x, y;
+            if (Math.random() < 0.5) {
+                x = Math.random() < 0.5 ? 0 - radius : canvas.width + radius;
+                y = Math.random() * canvas.height;
+            } else {
+                x = Math.random() * canvas.width;
+                y = Math.random() < 0.5 ? 0 - radius : canvas.height + radius;
+            }
+            const angle = Math.atan2(player.y - y, player.x - x);
+            // Speed increases as score goes up to test reflexes
+            const speed = 2 + (score / 1500);
+            const velocity = { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed };
+            enemies.push({x, y, radius, velocity});
+        }
+
+        function animate() {
+            if (!gameActive) return;
+            requestAnimationFrame(animate);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            player.draw();
+
+            projectiles.forEach((p, i) => {
+                p.x += p.velocity.x;
+                p.y += p.velocity.y;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffff00';
+                ctx.fill();
+                if (p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) projectiles.splice(i, 1);
+            });
+
+            enemies.forEach((enemy, eIndex) => {
+                enemy.x += enemy.velocity.x;
+                enemy.y += enemy.velocity.y;
+                
+                ctx.beginPath();
+                ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#ff0000';
+                ctx.fill();
+
+                // Collision with player
+                if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < player.radius + enemy.radius) {
+                    handleGameOver();
+                }
+
+                // Projectile hit enemy
+                projectiles.forEach((p, pIndex) => {
+                    if (Math.hypot(p.x - enemy.x, p.y - enemy.y) < enemy.radius) {
+                        score += 100;
+                        scoreEl.innerText = score;
+                        enemies.splice(eIndex, 1);
+                        projectiles.splice(pIndex, 1);
+                    }
+                });
+            });
+        }
+
+        function handleGameOver() {
+            gameActive = false;
+            
+            // LOGIC: Play sound ONLY if score is BELOW or EQUAL to highscore
+            if (score <= highscore) {
+                getOutSound.play();
+                alert("YOU SUCK! Score: " + score + ". GET OUT!");
+            } else {
+                // NEW HIGH SCORE! No "Get Out" sound, just glory.
+                localStorage.setItem('combatHighScore', score);
+                alert("NEW MISSION RECORD: " + score + "!");
+            }
+            
+            location.reload();
+        }
+
+        startBtn.addEventListener('click', () => {
+            // Prime audio for browser
+            getOutSound.play().then(() => {
+                getOutSound.pause();
+                getOutSound.currentTime = 0;
+                overlay.style.display = 'none';
+                gameActive = true;
+                animate();
+                setInterval(spawnEnemy, 800);
+            });
+        });
+
+        window.addEventListener('mousedown', (e) => {
+            if (!gameActive) return;
+            const angle = Math.atan2(e.clientY - player.y, e.clientX - player.x);
+            projectiles.push({
+                x: player.x,
+                y: player.y,
+                velocity: { x: Math.cos(angle) * 15, y: Math.sin(angle) * 15 }
+            });
+        });
+    </script>
+</body>
+</html>
